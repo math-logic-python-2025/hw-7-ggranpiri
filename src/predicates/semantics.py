@@ -153,6 +153,14 @@ class Model(Generic[T]):
         for function, arity in term.functions():
             assert function in self.function_interpretations and self.function_arities[function] == arity
         # Task 7.7
+        root = term.root
+        if is_constant(root):
+            return self.constant_interpretations[root]
+        elif is_variable(root):
+            return assignment[root]
+        elif is_function(root):
+            return self.function_interpretations[root][
+                tuple(self.evaluate_term(argument, assignment) for argument in term.arguments)]
 
     def evaluate_formula(self, formula: Formula, assignment: Mapping[str, T] = frozendict()) -> bool:
         """Calculates the truth value of the given formula in the current model
@@ -178,6 +186,47 @@ class Model(Generic[T]):
         for relation, arity in formula.relations():
             assert relation in self.relation_interpretations and self.relation_arities[relation] in {-1, arity}
         # Task 7.8
+        root = formula.root
+        if is_equality(root):
+            return self.evaluate_term(formula.arguments[0], assignment) is self.evaluate_term(formula.arguments[1],
+                                                                                              assignment)
+        elif is_relation(root):
+            return tuple(self.evaluate_term(argument, assignment) for argument in formula.arguments) in \
+                self.relation_interpretations[root]
+        elif is_unary(root):
+            return not self.evaluate_formula(formula.first, assignment)
+        elif is_binary(root):
+            if root == '&':
+                return self.evaluate_formula(formula.first, assignment) and self.evaluate_formula(formula.second,
+                                                                                                  assignment)
+            elif root == '|':
+                return self.evaluate_formula(formula.first, assignment) or self.evaluate_formula(formula.second,
+                                                                                                 assignment)
+            elif root == '->':
+                return not self.evaluate_formula(formula.first, assignment) or self.evaluate_formula(formula.second,
+                                                                                                     assignment)
+            elif root == '-&':
+                return not (self.evaluate_formula(formula.first, assignment) and self.evaluate_formula(formula.second,
+                                                                                                       assignment))
+            elif root == '-|':
+                return not (self.evaluate_formula(formula.first, assignment) or self.evaluate_formula(formula.second,
+                                                                                                      assignment))
+            elif root == '+':
+                return self.evaluate_formula(formula.first, assignment) != self.evaluate_formula(formula.second,
+                                                                                                 assignment)
+            elif root == '<->':
+                return self.evaluate_formula(formula.first, assignment) == self.evaluate_formula(formula.second,
+                                                                                                 assignment)
+
+        elif is_quantifier(root):
+            variable = formula.variable
+            new_assignments = ({variable: value} for value in self.universe)
+            truth_values = (self.evaluate_formula(formula.statement, {**assignment, **new_assignment}) for
+                            new_assignment in new_assignments)
+            if root == 'A':
+                return all(truth_values)
+            else:
+                return any(truth_values)
 
     def is_model_of(self, formulas: AbstractSet[Formula]) -> bool:
         """Checks if the current model is a model of the given formulas.
@@ -199,3 +248,9 @@ class Model(Generic[T]):
             for relation, arity in formula.relations():
                 assert relation in self.relation_interpretations and self.relation_arities[relation] in {-1, arity}
         # Task 7.9
+        new_formulas = set()
+        for formula in formulas:
+            for free_variable in formula.free_variables():
+                formula = Formula('A', free_variable, formula)
+            new_formulas.add(formula)
+        return all(self.evaluate_formula(formula) for formula in new_formulas)
